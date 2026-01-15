@@ -1,49 +1,92 @@
 """
-Processing pipeline.
+Pipeline module.
 
-Pipelines define:
-input → processing → output
+The Pipeline is responsible for:
+- controlling execution flow
+- passing data through processors
+- managing shared context
+- collecting events
+
+It does NOT contain business logic or AI logic.
 """
 
-from percepta.video.ffmpeg_reader import FFmpegVideoReader
-from percepta.video.opencv_processor import OpenCVProcessor
+from typing import List, Iterable
+
 from percepta.models.frame import Frame
+from percepta.core.context import Context
+from percepta.processors.base import Processor
 from percepta.utils.logger import get_logger
 
-logger = get_logger(__name__)
 
-
-class VideoPipeline:
+class Pipeline:
     """
-    Orchestrates video ingestion and processing.
+    Core pipeline orchestrator.
+
+    The pipeline:
+    - pulls data from a source
+    - passes it through processors in order
+    - stores generated events in context
     """
 
-    def __init__(self, video_path: str):
-        self.reader = FFmpegVideoReader(video_path)
-        self.processor = OpenCVProcessor()
-        self.frame_id = 0
-
-    def run(self):
+    def __init__(
+        self,
+        source: Iterable[Frame],
+        processors: List[Processor],
+        context: Context,
+    ):
         """
-        Run the full pipeline.
+        Initialize the pipeline.
+
+        Args:
+            source: Iterable source of Frames (video, sensor, etc.)
+            processors: List of processors to run sequentially
+            context: Shared runtime context
         """
+        self.source = source
+        self.processors = processors
+        self.context = context
+        self.logger = get_logger(self.__class__.__name__)
 
-        self.reader.start()
+    def initialize(self) -> None:
+        """
+        Initialize pipeline and all processors.
+        """
+        self.logger.info("Initializing pipeline")
 
-        while True:
-            raw_frame = self.reader.read_frame()
-            if raw_frame is None:
-                break
+        for processor in self.processors:
+            processor.initialize(self.context)
 
-            frame = Frame(
-                data=raw_frame,
-                timestamp=self.frame_id / 30.0,
-                frame_id=self.frame_id
-            )
+    def run(self) -> None:
+        """
+        Run the pipeline end-to-end.
+        """
+        self.initialize()
 
-            processed = self.processor.process(frame)
+        for frame in self.source:
+            self.process_frame(frame)
 
-            logger.info(f"Processed frame {processed.frame_id}")
-            self.frame_id += 1
+        self.shutdown()
 
-        self.reader.stop()
+    def process_frame(self, frame: Frame) -> None:
+        """
+        Process a single frame through all processors.
+
+        Args:
+            frame: A single time-stamped Frame
+        """
+        for processor in self.processors:
+            events = processor.process(frame, self.context)
+
+            # Store generated events in shared memory
+            for event in events:
+                self.context.event_buffer.add(event)
+                self.context.events_processed += 1
+
+    def shutdown(self) -> None:
+        """
+        Shutdown pipeline and all processors cleanly.
+        """
+        self.logger.info("Shutting down pipeline")
+
+        for processor in self.processors:
+            processor.shutdown()
