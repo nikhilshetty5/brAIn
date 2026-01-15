@@ -1,5 +1,22 @@
-from brainn.core.pipeline import VideoPipeline
+from percepta.core.pipeline import Pipeline
+from percepta.core.context import Context
+from percepta.video.video_source import VideoSource
+from percepta.processors.preprocess import PreprocessProcessor
+from percepta.processors.motion import MotionProcessor
 
-if __name__ == "__main__":
-    pipeline = VideoPipeline("sample.mp4")
-    pipeline.run()
+context = Context(api_key="demo-key")
+
+source = VideoSource("sample.mp4")
+
+processors = [
+    PreprocessProcessor(),
+    MotionProcessor()
+]
+
+pipeline = Pipeline(
+    source=source,
+    processors=processors,
+    context=context
+)
+
+pipeline.run()
